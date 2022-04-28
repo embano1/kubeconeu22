@@ -1,0 +1,76 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: tagdrift-fn
+  labels:
+    app: veba-ui
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: "1"
+        autoscaling.knative.dev/minScale: "1"
+    spec:
+      containerConcurrency: 1
+      containers:
+        - image: ghcr.io/embano1/tagdrift-fn:v1.0@sha256:5339d8b9282aa702b383627cfdb8599f335ee550ad87e51084dfe48576d26b4a
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: VCENTER_URL
+              value: "https://vcenter.local"
+            - name: VCENTER_INSECURE
+              value: "false"
+            - name: VCENTER_SECRET_PATH
+              value: "/var/bindings/vsphere" # default
+            - name: CATEGORY
+              value: "k8s-zone" # default
+            - name: DEBUG
+              value: "true"
+            - name: SLACK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: slack-credentials
+                  key: token
+                  optional: false
+          volumeMounts:
+            - name: vsphere-credentials
+              mountPath: /var/bindings/vsphere
+              readOnly: true
+      volumes:
+        - name: vsphere-credentials
+          secret:
+            secretName: vsphere-credentials
+---
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: tagdrift-vmmigrated
+  annotations:
+    rabbitmq.eventing.knative.dev/prefetchCount: "1"
+spec:
+  broker: default
+  filter:
+    attributes:
+      subject: VmMigratedEvent
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: tagdrift-fn
+---
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: tagdrift-drsvmmigrated
+  annotations:
+    rabbitmq.eventing.knative.dev/prefetchCount: "1"
+spec:
+  broker: default
+  filter:
+    attributes:
+      subject: DrsVmMigratedEvent
+  subscriber:
+    ref:
+      apiVersion: v1
+      kind: Service
+      name: tagdrift-fn
